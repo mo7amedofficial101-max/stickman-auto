@@ -2,7 +2,6 @@ import google.generativeai as genai, asyncio, edge_tts, random, os, textwrap, js
 import arabic_reshaper
 from bidi.algorithm import get_display
 
-# استيراد متوافق مع كافة إصدارات MoviePy (v1.x و v2.x)
 try:
     from moviepy.editor import VideoClip, AudioFileClip, VideoFileClip, ColorClip, CompositeVideoClip
 except ImportError:
@@ -17,7 +16,8 @@ import numpy as np
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 genai.configure(api_key=GEMINI_API_KEY)
 
-MODEL_NAME = 'gemini-2.5-flash'
+# تحديث اسم الموديل إلى الموديل المطلوب
+MODEL_NAME = 'gemini-3.8-flash'
 model = genai.GenerativeModel(MODEL_NAME)
 VOICE = "ar-SA-HamedNeural"
 
