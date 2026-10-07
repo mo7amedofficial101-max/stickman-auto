@@ -1,7 +1,13 @@
 import google.generativeai as genai, asyncio, edge_tts, random, os, textwrap, json, re
 import arabic_reshaper
 from bidi.algorithm import get_display
-from moviepy.editor import *
+
+# استيراد متوافق مع كافة إصدارات MoviePy (v1.x و v2.x)
+try:
+    from moviepy.editor import VideoClip, AudioFileClip, VideoFileClip, ColorClip, CompositeVideoClip
+except ImportError:
+    from moviepy import VideoClip, AudioFileClip, VideoFileClip, ColorClip, CompositeVideoClip
+
 from PIL import Image, ImageDraw, ImageFont
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -11,7 +17,6 @@ import numpy as np
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 genai.configure(api_key=GEMINI_API_KEY)
 
-# استخدام اسم الموديل الحديث الشغال
 MODEL_NAME = 'gemini-2.5-flash'
 model = genai.GenerativeModel(MODEL_NAME)
 VOICE = "ar-SA-HamedNeural"
