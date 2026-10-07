@@ -1,4 +1,5 @@
-import google.generativeai as genai, asyncio, edge_tts, random, os, textwrap, json, re
+import asyncio, edge_tts, random, os, textwrap, json, re
+from google import genai
 import arabic_reshaper
 from bidi.algorithm import get_display
 from moviepy.editor import *
@@ -8,9 +9,9 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import numpy as np
 
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+# إعداد العميل الجديد بـ Gemini API
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+MODEL_ID = "gemini-2.5-flash"
 VOICE = "ar-SA-HamedNeural"
 
 def reshape_ar(text):
@@ -24,14 +25,24 @@ async def generate_all():
     {{"story": "القصة 300 كلمة فصحى سرد هادئ مشوق", "title": "عنوان يوتيوب جذاب 6 كلمات", "description": "وصف سطرين SEO", "hashtags": "#قصص_اسلامية #ستيك_مان #عبرة #حكايات_اسلامية", "thumb_text": "كلمتين للصورة المصغرة"}}
     شرط: لا تخترع احاديث ضعيفة.
     """
-    response = model.generate_content(prompt)
+    
+    # استخدام الطريقة الجديدة للطلب
+    response = client.models.generate_content(
+        model=MODEL_ID,
+        contents=prompt
+    )
+    
     try:
         data = json.loads(re.search(r'\{.*\}', response.text, re.DOTALL).group())
     except:
         data = {"story": response.text, "title": "قصة اسلامية تهز القلوب", "description": "قصة اسلامية مؤثرة", "hashtags": "#قصص_اسلامية #ستيك_مان", "thumb_text": "عبرة عظيمة"}
     
-    check = model.generate_content(f"هل هذه القصة فيها حديث ضعيف او موضوع؟ القصة: {data['story']} اجب بكلمة: صحيحة او خاطئة").text
-    if "خاطئة" in check:
+    check_response = client.models.generate_content(
+        model=MODEL_ID,
+        contents=f"هل هذه القصة فيها حديث ضعيف او موضوع؟ القصة: {data['story']} اجب بكلمة: صحيحة او خاطئة"
+    )
+    
+    if "خاطئة" in check_response.text:
         return await generate_all()
     return data
 
