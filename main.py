@@ -1,4 +1,3 @@
-cat > main.py << \'PYEOF\'
 import google.generativeai as genai, asyncio, edge_tts, random, os, textwrap, json, re
 import arabic_reshaper
 from bidi.algorithm import get_display
@@ -119,4 +118,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-PYEOF
