@@ -1,4 +1,11 @@
-import google.generativeai as genai, asyncio, edge_tts, random, os, textwrap, json, re
+import os, sys
+
+# رقعة لضمان التوافق مع إصدارات Pillow الحديثة ومكتبة MoviePy
+import PIL.Image
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = getattr(PIL.Image, 'Resampling', PIL.Image).LANCZOS
+
+import google.generativeai as genai, asyncio, edge_tts, random, textwrap, json, re
 import arabic_reshaper
 from bidi.algorithm import get_display
 
@@ -16,7 +23,6 @@ import numpy as np
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 genai.configure(api_key=GEMINI_API_KEY)
 
-# تحديث اسم الموديل إلى الموديل المطلوب
 MODEL_NAME = 'gemini-3.8-flash'
 model = genai.GenerativeModel(MODEL_NAME)
 VOICE = "ar-SA-HamedNeural"
