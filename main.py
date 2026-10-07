@@ -10,7 +10,7 @@ import numpy as np
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel(\'gemini-1.5-flash\')
+model = genai.GenerativeModel('gemini-1.5-flash')
 VOICE = "ar-SA-HamedNeural"
 
 def reshape_ar(text):
@@ -26,10 +26,11 @@ async def generate_all():
     """
     response = model.generate_content(prompt)
     try:
-        data = json.loads(re.search(r\'\{.*\}\', response.text, re.DOTALL).group())
+        data = json.loads(re.search(r'\{.*\}', response.text, re.DOTALL).group())
     except:
         data = {"story": response.text, "title": "قصة اسلامية تهز القلوب", "description": "قصة اسلامية مؤثرة", "hashtags": "#قصص_اسلامية #ستيك_مان", "thumb_text": "عبرة عظيمة"}
-    check = model.generate_content(f"هل هذه القصة فيها حديث ضعيف او موضوع؟ القصة: {data[\'story\']} اجب بكلمة: صحيحة او خاطئة").text
+    
+    check = model.generate_content(f"هل هذه القصة فيها حديث ضعيف او موضوع؟ القصة: {data['story']} اجب بكلمة: صحيحة او خاطئة").text
     if "خاطئة" in check:
         return await generate_all()
     return data
@@ -44,7 +45,7 @@ def create_long_video(audio_path, story_text):
     duration = audio.duration
     W, H = 1920, 1080
     def make_frame(t):
-        img = Image.new(\'RGB\', (W, H), color=(10,10,10))
+        img = Image.new('RGB', (W, H), color=(10,10,10))
         draw = ImageDraw.Draw(img)
         y = int(5 * np.sin(t*3))
         draw.ellipse([W//2-60, 250+y, W//2+60, 370+y], outline="white", width=9)
@@ -62,11 +63,11 @@ def create_long_video(audio_path, story_text):
         draw.text((W//2, 940), reshaped, fill="black", font=font, anchor="mm")
         return np.array(img)
     video = VideoClip(make_frame, duration=duration).set_audio(audio)
-    video.write_videofile("long_video.mp4", fps=24, codec=\'libx264\', audio_codec=\'aac\')
+    video.write_videofile("long_video.mp4", fps=24, codec='libx264', audio_codec='aac')
     return "long_video.mp4"
 
 def create_thumbnail(thumb_text):
-    img = Image.new(\'RGB\', (1280, 720), color=(255,193,7))
+    img = Image.new('RGB', (1280, 720), color=(255,193,7))
     draw = ImageDraw.Draw(img)
     draw.ellipse([440, 110, 840, 510], fill="white", outline="black", width=12)
     draw.ellipse([560, 230, 610, 300], fill="black")
@@ -82,7 +83,7 @@ def create_shorts(long_path):
     clip_resized = clip.resize(width=1080)
     background = ColorClip(size=(1080,1920), color=(0,0,0), duration=clip.duration)
     final = CompositeVideoClip([background, clip_resized.set_position("center")]).set_audio(clip.audio)
-    final.write_videofile("shorts.mp4", fps=24, codec=\'libx264\', audio_codec=\'aac\')
+    final.write_videofile("shorts.mp4", fps=24, codec='libx264', audio_codec='aac')
     return "shorts.mp4"
 
 def upload_youtube(video_path, thumb_path, title, description, tags, is_shorts=False):
@@ -99,7 +100,7 @@ def upload_youtube(video_path, thumb_path, title, description, tags, is_shorts=F
         body={"snippet": {"title": title[:95], "description": description, "tags": tags, "categoryId": "22"}, "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}},
         media_body=MediaFileUpload(video_path, resumable=True)
     ).execute()
-    print(f"تم الرفع: https://youtu.be/{res[\'id\']}")
+    print(f"تم الرفع: https://youtu.be/{res['id']}")
     if not is_shorts:
         youtube.thumbnails().set(videoId=res["id"], media_body=MediaFileUpload(thumb_path)).execute()
     return res["id"]
@@ -112,7 +113,7 @@ async def main():
     create_thumbnail(data["thumb_text"])
     create_shorts("long_video.mp4")
     tags = data["hashtags"].replace("#","").split()
-    desc_long = f"{data[\'description\']}\n\n{data[\'story\'][:400]}\n\n{data[\'hashtags\']}"
+    desc_long = f"{data['description']}\n\n{data['story'][:400]}\n\n{data['hashtags']}"
     upload_youtube("long_video.mp4", "thumb.jpg", data["title"], desc_long, tags, False)
     upload_youtube("shorts.mp4", "thumb.jpg", data["thumb_text"], data["hashtags"] + " #Shorts", tags, True)
 
