@@ -26,7 +26,7 @@ async def generate_all():
     """
     response = model.generate_content(prompt)
     try:
-        data = json.loads(re.search(r\'\{.*\}\', response.text, re.DOTALL).group())
+        data = json.loads(re.search(r\'\{.*\}\', response.text, re.DOTALL)
     except:
         data = {"story": response.text, "title": "قصة اسلامية تهز القلوب", "description": "قصة اسلامية مؤثرة", "hashtags": "#قصص_اسلامية #ستيك_مان", "thumb_text": "عبرة عظيمة"}
     check = model.generate_content(f"هل هذه القصة فيها حديث ضعيف او موضوع؟ القصة: {data[\'story\']} اجب بكلمة: صحيحة او خاطئة").text
