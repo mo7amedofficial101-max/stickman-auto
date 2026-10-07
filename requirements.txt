@@ -1,10 +1,9 @@
-edge-tts
-moviepy==1.0.3
-Pillow
 google-generativeai
-google-api-python-client
-google-auth-httplib2
-google-auth-oauthlib
+edge-tts
+moviepy
+Pillow
 arabic-reshaper
 python-bidi
+google-api-python-client
+google-auth-oauthlib
 numpy
