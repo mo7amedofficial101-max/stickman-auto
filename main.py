@@ -10,7 +10,7 @@ import numpy as np
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel('gemini-1.5-flash')
 VOICE = "ar-SA-HamedNeural"
 
 def reshape_ar(text):
