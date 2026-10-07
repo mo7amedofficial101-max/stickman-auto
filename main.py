@@ -1,3 +1,4 @@
+cat > main.py << \'PYEOF\'
 import google.generativeai as genai, asyncio, edge_tts, random, os, textwrap, json, re
 import arabic_reshaper
 from bidi.algorithm import get_display
@@ -10,7 +11,7 @@ import numpy as np
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel(\'gemini-1.5-flash\')
 VOICE = "ar-SA-HamedNeural"
 
 def reshape_ar(text):
@@ -26,7 +27,7 @@ async def generate_all():
     """
     response = model.generate_content(prompt)
     try:
-        data = json.loads(re.search(r\'\{.*\}\', response.text, re.DOTALL)
+        data = json.loads(re.search(r\'\{.*\}\', response.text, re.DOTALL).group())
     except:
         data = {"story": response.text, "title": "قصة اسلامية تهز القلوب", "description": "قصة اسلامية مؤثرة", "hashtags": "#قصص_اسلامية #ستيك_مان", "thumb_text": "عبرة عظيمة"}
     check = model.generate_content(f"هل هذه القصة فيها حديث ضعيف او موضوع؟ القصة: {data[\'story\']} اجب بكلمة: صحيحة او خاطئة").text
@@ -118,3 +119,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+PYEOF
