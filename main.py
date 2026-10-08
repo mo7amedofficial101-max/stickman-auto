@@ -279,5 +279,14 @@ def create_long_video(audio_path, story_text):
         ).with_audio(audio)
 
         try:
-            video.write_videofile(
-                "long_video.mp4",
+        video.write_videofile(
+            "long_video.mp4",
+            fps=24,
+            codec="libx264",
+            audio_codec="aac",
+        )
+    finally:
+        video.close()
+        audio.close()
+
+    return "long_video.mp4"
