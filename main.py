@@ -29,15 +29,15 @@ import numpy as np
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 client = genai.Client(api_key=GEMINI_KEY)
 
-# استخدام موديل مستقر خفيف ومرن
-MODEL_NAME = 'gemini-1.5-flash'
+# استخدام الموديل المعتمد والحديث
+MODEL_NAME = 'gemini-3.8-flash'
 VOICE = "ar-SA-HamedNeural"
 
 def reshape_ar(text):
     return get_display(arabic_reshaper.reshape(text))
 
 async def safe_generate(prompt):
-    """دالة توليد آمنة تعالج أخطاء الضغط المؤقت (503) وتجاوز المعدل (429)"""
+    """دالة توليد آمنة تعالج أخطاء الضغط والـ Rate Limits بمرونة عالية"""
     delays = [10, 20, 30, 60]
     
     for attempt, delay in enumerate(delays, start=1):
@@ -50,7 +50,6 @@ async def safe_generate(prompt):
             return response
         except errors.APIError as e:
             print(f"⚠️ تنبيه Gemini API (الكود {e.code}): {e.message}")
-            # التعامل مع أخطاء الضغط المؤقت 503 وتجاوز المعدل 429
             if e.code in [429, 503]:
                 print(f"⏳ خوادم الموديل تحت الضغط/تجاوز الحدود. جاري الانتظار {delay} ثانية... (المحاولة {attempt}/{len(delays)})")
                 await asyncio.sleep(delay)
@@ -60,7 +59,7 @@ async def safe_generate(prompt):
             print(f"❌ خطأ غير متوقع: {str(e)}")
             raise e
             
-    raise Exception("❌ فشل الاتصال بعد محاولات متعددة بسبب الضغط على خوادم Gemini. جرب التشغيل بعد فترة قصيرة.")
+    raise Exception("❌ فشل الاتصال بعد محاولات متعددة بسبب الضغط على خوادم Gemini.")
 
 async def generate_all():
     topic = random.choice([
