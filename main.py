@@ -1,9 +1,10 @@
 import asyncio
 import json
+import math
 import os
 import random
 import re
-import sys
+from pathlib import Path
 
 import arabic_reshaper
 import edge_tts
@@ -25,17 +26,12 @@ from moviepy import (
 from PIL import Image, ImageDraw, ImageFont
 
 
+# يمكن تغيير الموديل من متغير البيئة GEMINI_MODEL.
+# القيمة الافتراضية هي نفس الموجودة في كودك السابق.
 MODEL_NAME = os.environ.get(
     "GEMINI_MODEL", "gemini-3.8-flash"
 ).strip()
 VOICE = "ar-SA-HamedNeural"
-
-
-def required_env(name):
-    value = os.environ.get(name, "").strip()
-    if not value:
-        raise RuntimeError(f"متغير البيئة {name} غير موجود أو فارغ.")
-    return value
 
 
 def reshape_ar(text):
@@ -43,14 +39,15 @@ def reshape_ar(text):
 
 
 def load_font(size):
-    # يمكن تحديد مسار خط يدعم العربية عبر FONT_PATH.
-    paths = [
-        os.environ.get("FONT_PATH", "").strip(),
+    candidates = [
+        os.environ.get("ARABIC_FONT_PATH", ""),
         "arial.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",
+        "/usr/share/fonts/opentype/noto/NotoNaskhArabic-Regular.ttf",
     ]
-    for path in paths:
+
+    for path in candidates:
         if not path:
             continue
         try:
@@ -59,14 +56,13 @@ def load_font(size):
             continue
 
     raise RuntimeError(
-        "لم أجد خطًا مناسبًا. وفّر خطًا يدعم العربية "
-        "وحدّد مساره في FONT_PATH."
+        "لم يتم العثور على خط يدعم العربية. "
+        "أضف ملف خط واضبط ARABIC_FONT_PATH على مساره."
     )
 
 
 def get_retry_seconds(error):
     payload = getattr(error, "response_json", None)
-
     if isinstance(payload, dict):
         body = payload.get("error", payload)
         if isinstance(body, dict):
@@ -75,7 +71,6 @@ def get_retry_seconds(error):
                 for detail in details:
                     if not isinstance(detail, dict):
                         continue
-
                     value = detail.get("retryDelay")
                     if isinstance(value, str):
                         match = re.fullmatch(
@@ -84,7 +79,6 @@ def get_retry_seconds(error):
                         if match:
                             return float(match.group(1))
 
-    # مثال: Please retry in 10h11m26.984748055s.
     message = str(getattr(error, "message", "") or error)
     match = re.search(
         r"retry\s+in\s+"
@@ -133,16 +127,16 @@ async def safe_generate(client, prompt):
                 retry_seconds is not None
                 and retry_seconds > max_wait_seconds
             ):
-                minutes = int(retry_seconds // 60) + 1
+                minutes = math.ceil(retry_seconds / 60)
                 raise RuntimeError(
                     f"{reason}. يطلب API الانتظار حوالي "
-                    f"{minutes} دقيقة. أعد التشغيل لاحقًا؛ "
-                    "ولخطأ 429 راجع الحصة والفوترة."
+                    f"{minutes} دقيقة. أعد التشغيل لاحقًا. "
+                    "في حالة 429 راجع الحصة والفوترة."
                 ) from exc
 
             if attempt == max_attempts:
                 raise RuntimeError(
-                    f"{reason}: فشلت {max_attempts} محاولات."
+                    f"{reason}. فشلت {max_attempts} محاولات."
                 ) from exc
 
             delay = (
@@ -154,7 +148,7 @@ async def safe_generate(client, prompt):
 
             print(
                 f"⏳ {reason} (HTTP {exc.code}). "
-                f"إعادة المحاولة بعد {delay:.1f} ثانية "
+                f"المحاولة التالية بعد {delay:.1f} ثانية "
                 f"({attempt}/{max_attempts})."
             )
             await asyncio.sleep(delay)
@@ -171,122 +165,332 @@ async def generate_all(client):
     ])
 
     prompt = f"""
-    اكتب قصة إسلامية موثوقة عن: {topic}
-    شروط هامة:
-    1. لا تذكر أي حديث ضعيف أو موضوع إطلاقاً.
-    2. لا تختلق أحداثاً وتنسبها لشخصيات تاريخية.
-    3. رد بصيغة JSON فقط:
-    {{
-      "story": "القصة 300 كلمة بلغة عربية فصحى وبسرد مشوق",
-      "title": "عنوان يوتيوب جذاب من 6 كلمات",
-      "description": "وصف سطرين مناسب للـ SEO",
-      "hashtags": "#قصص_اسلامية #ستيك_مان #عبرة #حكايات_اسلامية",
-      "thumb_text": "كلمتين للصورة المصغرة"
-    }}
-    """
+اكتب قصة إسلامية موثوقة عن: {topic}
+
+الشروط:
+1. لا تذكر أي حديث ضعيف أو موضوع.
+2. لا تختلق رواية وتنسبها إلى شخصية تاريخية.
+3. رد بكائن JSON فقط، بقيم نصية غير فارغة:
+{{
+  "story": "القصة نحو 300 كلمة بلغة عربية فصحى وبسرد مشوق",
+  "title": "عنوان يوتيوب جذاب من 6 كلمات",
+  "description": "وصف سطرين مناسب للبحث",
+  "hashtags": "#قصص_اسلامية #ستيك_مان #عبرة #حكايات_اسلامية",
+  "thumb_text": "كلمتان للصورة المصغرة"
+}}
+"""
 
     response = await safe_generate(client, prompt)
     text = (response.text or "").strip()
     if not text:
-        raise RuntimeError("Gemini أعاد استجابة فارغة.")
+        raise RuntimeError("Gemini أعاد استجابة نصية فارغة.")
+
+    # إزالة سياج Markdown إن أعاده الموديل رغم طلب JSON.
+    if text.startswith("```"):
+        text = re.sub(
+            r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE
+        )
+        text = re.sub(r"\s*```$", "", text)
 
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        # لا نحول ردًا معطوبًا إلى تعليق صوتي ونرفعه.
         raise RuntimeError(
-            "استجابة Gemini ليست JSON صالحًا. توقف إنشاء الفيديو."
+            "استجابة Gemini ليست JSON صالحًا؛ "
+            "تم إيقاف التنفيذ بدل تحويل الاستجابة الخاطئة لفيديو."
         ) from exc
 
-    required_keys = (
-        "story", "title", "description", "hashtags", "thumb_text"
+    fields = (
+        "story",
+        "title",
+        "description",
+        "hashtags",
+        "thumb_text",
     )
     if not isinstance(data, dict):
-        raise RuntimeError("استجابة Gemini ليست كائن JSON.")
+        raise RuntimeError("الاستجابة يجب أن تكون كائن JSON.")
 
-    for key in required_keys:
-        value = data.get(key)
+    for field in fields:
+        value = data.get(field)
         if not isinstance(value, str) or not value.strip():
             raise RuntimeError(
-                f"الحقل {key} مفقود أو غير صالح في استجابة Gemini."
+                f"الحقل {field} مفقود أو ليس نصًا صالحًا."
             )
-        data[key] = value.strip()
+        data[field] = value.strip()
 
     return data
 
 
 async def text_to_speech(text):
+    path = "voice.mp3"
     communicate = edge_tts.Communicate(
-        text, VOICE, rate="-15%", volume="+5%"
+        text,
+        VOICE,
+        rate="-15%",
+        volume="+5%",
     )
-    await communicate.save("voice.mp3")
-    return "voice.mp3"
+    await communicate.save(path)
+    return path
 
 
 def create_long_video(audio_path, story_text):
     width, height = 1920, 1080
     font = load_font(42)
     words = story_text.split()
+    chunks = [
+        " ".join(words[index:index + 12])
+        for index in range(0, len(words), 12)
+    ]
+    if not chunks:
+        raise ValueError("نص القصة فارغ.")
 
     with AudioFileClip(audio_path) as audio:
         duration = audio.duration
+        if not duration or duration <= 0:
+            raise RuntimeError("ملف الصوت لا يحتوي على مدة صالحة.")
 
         def make_frame(t):
-            img = Image.new(
+            image = Image.new(
                 "RGB", (width, height), color=(10, 10, 10)
             )
-            draw = ImageDraw.Draw(img)
-            x = width // 2
+            draw = ImageDraw.Draw(image)
+            center = width // 2
             y = int(5 * np.sin(t * 3))
 
             draw.ellipse(
-                [x - 60, 250 + y, x + 60, 370 + y],
+                [center - 60, 250 + y, center + 60, 370 + y],
                 outline="white",
                 width=9,
             )
-            for points in [
-                [x, 370 + y, x, 600 + y],
-                [x, 420 + y, x - 80, 480 + y],
-                [x, 420 + y, x + 80, 480 + y],
-                [x, 600 + y, x - 60, 750 + y],
-                [x, 600 + y, x + 60, 750 + y],
-            ]:
-                draw.line(points, fill="white", width=9)
+            segments = [
+                [center, 370 + y, center, 600 + y],
+                [center, 420 + y, center - 80, 480 + y],
+                [center, 420 + y, center + 80, 480 + y],
+                [center, 600 + y, center - 60, 750 + y],
+                [center, 600 + y, center + 60, 750 + y],
+            ]
+            for segment in segments:
+                draw.line(segment, fill="white", width=9)
 
             draw.rectangle(
                 [0, 850, width, height], fill=(255, 193, 7)
             )
 
-            # عرض تقريبي حسب مدة الصوت، وليس مزامنة كلمات دقيقة.
-            word_index = min(
-                int(t / duration * len(words)), len(words) - 1
+            # توزيع تقريبي للنص على مدة الصوت، وليس محاذاة كلمات.
+            index = min(
+                int((t / duration) * len(chunks)),
+                len(chunks) - 1,
             )
-            chunk_start = (word_index // 12) * 12
-            chunk = " ".join(words[chunk_start:chunk_start + 12])
-
             draw.text(
-                (x, 940),
-                reshape_ar(chunk),
+                (center, 940),
+                reshape_ar(chunks[index]),
                 fill="black",
                 font=font,
                 anchor="mm",
             )
-            return np.array(img)
+            return np.array(image)
 
         video = VideoClip(
             frame_function=make_frame,
             duration=duration,
         ).with_audio(audio)
 
-            try:
-        video.write_videofile(
-            "long_video.mp4",
-            fps=24,
-            codec="libx264",
-            audio_codec="aac",
-        )
-    finally:
-        video.close()
-        audio.close()
+        try:
+            video.write_videofile(
+                "long_video.mp4",
+                fps=24,
+                codec="libx264",
+                audio_codec="aac",
+            )
+        finally:
+            video.close()
 
     return "long_video.mp4"
+
+
+def create_thumbnail(thumb_text):
+    image = Image.new(
+        "RGB", (1280, 720), color=(255, 193, 7)
+    )
+    draw = ImageDraw.Draw(image)
+    draw.ellipse(
+        [440, 110, 840, 510],
+        fill="white",
+        outline="black",
+        width=12,
+    )
+    draw.ellipse([560, 230, 610, 300], fill="black")
+    draw.ellipse([670, 230, 720, 300], fill="black")
+
+    text = reshape_ar(thumb_text)
+    size = 130
+    font = load_font(size)
+    while draw.textlength(text, font=font) > 1180 and size > 20:
+        size -= 5
+        font = load_font(size)
+
+    draw.text(
+        (640, 620),
+        text,
+        fill="black",
+        font=font,
+        anchor="mm",
+        stroke_width=3,
+        stroke_fill="white",
+    )
+    image.save("thumb.jpg")
+    return "thumb.jpg"
+
+
+def create_shorts(long_path):
+    with VideoFileClip(long_path) as source:
+        clip = source.subclipped(0, min(35, source.duration))
+        resized = clip.resized(width=1080).with_position("center")
+        background = ColorClip(
+            size=(1080, 1920),
+            color=(0, 0, 0),
+            duration=clip.duration,
+        )
+        final = CompositeVideoClip(
+            [background, resized]
+        ).with_audio(clip.audio)
+
+        try:
+            final.write_videofile(
+                "shorts.mp4",
+                fps=24,
+                codec="libx264",
+                audio_codec="aac",
+            )
+        finally:
+            final.close()
+            background.close()
+
+    return "shorts.mp4"
+
+
+def upload_youtube(
+    video_path,
+    thumb_path,
+    title,
+    description,
+    tags,
+    is_shorts=False,
+):
+    creds = Credentials.from_authorized_user_info(
+        {
+            "client_id": os.environ["YT_CLIENT_ID"].strip(),
+            "client_secret": os.environ["YT_CLIENT_SECRET"].strip(),
+            "refresh_token": os.environ["YT_REFRESH_TOKEN"].strip(),
+            "token_uri": "https://oauth2.googleapis.com/token",
+        },
+        scopes=["https://www.googleapis.com/auth/youtube.upload"],
+    )
+    if not creds.valid:
+        creds.refresh(Request())
+
+    youtube = build("youtube", "v3", credentials=creds)
+    if is_shorts:
+        title = title[:87] + " #Shorts"
+
+    try:
+        result = youtube.videos().insert(
+            part="snippet,status",
+            body={
+                "snippet": {
+                    "title": title[:95],
+                    "description": description,
+                    "tags": tags,
+                    "categoryId": "22",
+                },
+                "status": {
+                    "privacyStatus": "public",
+                    "selfDeclaredMadeForKids": False,
+                },
+            },
+            media_body=MediaFileUpload(
+                video_path, resumable=True
+            ),
+        ).execute()
+
+        video_id = result["id"]
+        print(f"✅ تم الرفع: https://youtu.be/{video_id}")
+
+        if not is_shorts:
+            youtube.thumbnails().set(
+                videoId=video_id,
+                media_body=MediaFileUpload(thumb_path),
+            ).execute()
+
+        return video_id
+    finally:
+        youtube.close()
+
+
+async def main():
+    required = (
+        "GEMINI_API_KEY",
+        "YT_CLIENT_ID",
+        "YT_CLIENT_SECRET",
+        "YT_REFRESH_TOKEN",
+    )
+    missing = [
+        name
+        for name in required
+        if not os.environ.get(name, "").strip()
+    ]
+    if missing:
+        raise RuntimeError(
+            "متغيرات البيئة المطلوبة مفقودة: "
+            + ", ".join(missing)
+        )
+
+    # التحقق من الخط قبل استهلاك طلب Gemini.
+    load_font(42)
+
+    client = genai.Client(
+        api_key=os.environ["GEMINI_API_KEY"].strip()
+    )
+    try:
+        data = await generate_all(client)
+    finally:
+        client.close()
+
+    # حفظ النص لتسهيل المراجعة عند الحاجة.
+    print("البيانات المولدة:", json.dumps(data, ensure_ascii=False))
+
+    audio_path = await text_to_speech(data["story"])
+    long_path = create_long_video(audio_path, data["story"])
+    thumb_path = create_thumbnail(data["thumb_text"])
+    shorts_path = create_shorts(long_path)
+
+    tags = data["hashtags"].replace("#", "").split()
+    description = (
+        f"{data['description']}\n\n"
+        f"{data['story'][:400]}\n\n"
+        f"{data['hashtags']}"
+    )
+
+    upload_youtube(
+        long_path,
+        thumb_path,
+        data["title"],
+        description,
+        tags,
+    )
+    upload_youtube(
+        shorts_path,
+        thumb_path,
+        data["thumb_text"],
+        data["hashtags"] + " #Shorts",
+        tags,
+        is_shorts=True,
+    )
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except Exception as exc:
+        print(f"❌ توقف التشغيل: {exc}", flush=True)
+        raise
