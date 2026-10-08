@@ -25,13 +25,28 @@ import numpy as np
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 genai.configure(api_key=GEMINI_API_KEY)
 
-# استخدام الموديل المستقر المعتمد
 MODEL_NAME = 'gemini-3.8-flash'
 model = genai.GenerativeModel(MODEL_NAME)
 VOICE = "ar-SA-HamedNeural"
 
 def reshape_ar(text):
     return get_display(arabic_reshaper.reshape(text))
+
+async def safe_generate(prompt):
+    """دالة توليد آمنة تعتمد على Async مع إعادة المحاولة بانتظار تزايدي"""
+    delays = [15, 30, 60]
+    for attempt, delay in enumerate(delays, start=1):
+        try:
+            # تشغيل الطلب الـ Synchronous في Thread منفصل لعدم تجميد asyncio
+            response = await asyncio.to_thread(model.generate_content, prompt)
+            return response
+        except Exception as e:
+            if "429" in str(e) or "ResourceExhausted" in str(e) or "quota" in str(e).lower():
+                print(f"⚠️ تجاوز حد الطلبات (Quota). جاري الانتظار {delay} ثانية... (المحاولة {attempt}/{len(delays)})")
+                await asyncio.sleep(delay)
+            else:
+                raise e
+    raise Exception("❌ فشل الاتصال بـ Gemini API بعد استنفاد محاولات الانتظار.")
 
 async def generate_all():
     topic = random.choice([
@@ -40,31 +55,29 @@ async def generate_all():
         "قصة عن الامانة", "قصة عن الصبر"
     ])
     
+    # طلب موحد لتوليد القصة والتحقق منها في طلب واحد لتقليل استهلاك الـ Quota
     prompt = f"""
-    اكتب قصة اسلامية عن: {topic}
-    رد بصيغة JSON فقط بدون اي كلام خارجي:
-    {{"story": "القصة 300 كلمة فصحى سرد هادئ مشوق", "title": "عنوان يوتيوب جذاب 6 كلمات", "description": "وصف سطرين SEO", "hashtags": "#قصص_اسلامية #ستيك_مان #عبرة #حكايات_اسلامية", "thumb_text": "كلمتين للصورة المصغرة"}}
-    شرط: لا تخترع احاديث ضعيفة.
+    اكتب قصة إسلامية موثوقة عن: {topic}
+    شروط هامة:
+    1. لا تذكر أي حديث ضعيف أو موضوع إطلاقاً.
+    2. رد بصيغة JSON فقط وبدون أي نصوص إضافية قبل أو بعد الـ JSON:
+    {{
+      "story": "القصة 300 كلمة بلغة عربية فصحى وبسرد مشوق",
+      "title": "عنوان يوتيوب جذاب من 6 كلمات",
+      "description": "وصف سطرين مناسب للـ SEO",
+      "hashtags": "#قصص_اسلامية #ستيك_مان #عبرة #حكايات_اسلامية",
+      "thumb_text": "كلمتين للصورة المصغرة"
+    }}
     """
-
-    # دالة فرعية للتوليد مع معالجة الـ Rate Limit (429) تلقائياً
-    async def safe_generate(p):
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                return model.generate_content(p)
-            except Exception as e:
-                if "429" in str(e) or "ResourceExhausted" in str(e):
-                    print(f"تجاوز حد الطلبات، جاري الانتظار 10 ثوانٍ... (المحاولة {attempt+1}/{max_retries})")
-                    await asyncio.sleep(10)
-                else:
-                    raise e
-        raise Exception("فشل الاتصال بـ Gemini API بعد عدة محاولات بسبب الـ Quota.")
 
     response = await safe_generate(prompt)
     
     try:
-        data = json.loads(re.search(r'\{.*\}', response.text, re.DOTALL).group())
+        json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+        if json_match:
+            data = json.loads(json_match.group())
+        else:
+            raise ValueError("JSON not found")
     except Exception:
         data = {
             "story": response.text, 
@@ -73,16 +86,6 @@ async def generate_all():
             "hashtags": "#قصص_اسلامية #ستيك_مان", 
             "thumb_text": "عبرة عظيمة"
         }
-    
-    # فاصل زمني 5 ثوانٍ لتفادي الـ Rate Limit
-    await asyncio.sleep(5)
-
-    check_prompt = f"هل هذه القصة فيها حديث ضعيف او موضوع؟ القصة: {data['story']} اجب بكلمة: صحيحة او خاطئة"
-    check_response = await safe_generate(check_prompt)
-
-    if "خاطئة" in check_response.text:
-        await asyncio.sleep(5)
-        return await generate_all()
 
     return data
 
@@ -130,7 +133,7 @@ def create_thumbnail(thumb_text):
     return "thumb.jpg"
 
 def create_shorts(long_path):
-    clip = VideoFileClip(long_path).subclip(0, 35)
+    clip = VideoFileClip(long_path).subclip(0, min(35, VideoFileClip(long_path).duration))
     clip_resized = clip.resize(width=1080)
     background = ColorClip(size=(1080,1920), color=(0,0,0), duration=clip.duration)
     final = CompositeVideoClip([background, clip_resized.set_position("center")]).set_audio(clip.audio)
@@ -145,7 +148,6 @@ def upload_youtube(video_path, thumb_path, title, description, tags, is_shorts=F
         "token_uri": "https://oauth2.googleapis.com/token"
     }, scopes=["https://www.googleapis.com/auth/youtube.upload"])
     
-    # تجديد التوكن تلقائياً لو كان مستهلكاً أو منتهي الصلاحية
     if creds.expired or not creds.valid:
         creds.refresh(Request())
 
@@ -182,7 +184,7 @@ def upload_youtube(video_path, thumb_path, title, description, tags, is_shorts=F
 
 async def main():
     data = await generate_all()
-    print(data)
+    print("البيانات المولدة:", data)
     await text_to_speech(data["story"])
     create_long_video("voice.mp3", data["story"])
     create_thumbnail(data["thumb_text"])
