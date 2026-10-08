@@ -1,4 +1,4 @@
-google-genai
+moviepy>=2,<3
 edge-tts
 moviepy
 Pillow
