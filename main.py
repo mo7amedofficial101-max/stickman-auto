@@ -1,6 +1,6 @@
 import os, sys
 
-# رقعة لضمان التوافق مع إصدارات Pillow الحديثة ومكتبة MoviePy
+# رقعة لضمان التوافق بين Pillow الحديثة ومكتبة MoviePy
 import PIL.Image
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = getattr(PIL.Image, 'Resampling', PIL.Image).LANCZOS
@@ -9,6 +9,7 @@ import google.generativeai as genai, asyncio, edge_tts, random, textwrap, json, 
 import arabic_reshaper
 from bidi.algorithm import get_display
 
+# استيراد متوافق مع كافة إصدارات MoviePy
 try:
     from moviepy.editor import VideoClip, AudioFileClip, VideoFileClip, ColorClip, CompositeVideoClip
 except ImportError:
@@ -16,6 +17,7 @@ except ImportError:
 
 from PIL import Image, ImageDraw, ImageFont
 from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import numpy as np
@@ -23,6 +25,7 @@ import numpy as np
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 genai.configure(api_key=GEMINI_API_KEY)
 
+# استخدام الموديل المستقر المعتمد
 MODEL_NAME = 'gemini-3.8-flash'
 model = genai.GenerativeModel(MODEL_NAME)
 VOICE = "ar-SA-HamedNeural"
@@ -31,22 +34,56 @@ def reshape_ar(text):
     return get_display(arabic_reshaper.reshape(text))
 
 async def generate_all():
-    topic = random.choice(["قصة عن بر الوالدين", "قصة عن عاقبة الظلم", "قصة من حياة عمر بن الخطاب", "قصة عن التوبة", "قصة عن الامانة", "قصة عن الصبر"])
+    topic = random.choice([
+        "قصة عن بر الوالدين", "قصة عن عاقبة الظلم", 
+        "قصة من حياة عمر بن الخطاب", "قصة عن التوبة", 
+        "قصة عن الامانة", "قصة عن الصبر"
+    ])
+    
     prompt = f"""
     اكتب قصة اسلامية عن: {topic}
     رد بصيغة JSON فقط بدون اي كلام خارجي:
     {{"story": "القصة 300 كلمة فصحى سرد هادئ مشوق", "title": "عنوان يوتيوب جذاب 6 كلمات", "description": "وصف سطرين SEO", "hashtags": "#قصص_اسلامية #ستيك_مان #عبرة #حكايات_اسلامية", "thumb_text": "كلمتين للصورة المصغرة"}}
     شرط: لا تخترع احاديث ضعيفة.
     """
-    response = model.generate_content(prompt)
+
+    # دالة فرعية للتوليد مع معالجة الـ Rate Limit (429) تلقائياً
+    async def safe_generate(p):
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                return model.generate_content(p)
+            except Exception as e:
+                if "429" in str(e) or "ResourceExhausted" in str(e):
+                    print(f"تجاوز حد الطلبات، جاري الانتظار 10 ثوانٍ... (المحاولة {attempt+1}/{max_retries})")
+                    await asyncio.sleep(10)
+                else:
+                    raise e
+        raise Exception("فشل الاتصال بـ Gemini API بعد عدة محاولات بسبب الـ Quota.")
+
+    response = await safe_generate(prompt)
+    
     try:
         data = json.loads(re.search(r'\{.*\}', response.text, re.DOTALL).group())
-    except:
-        data = {"story": response.text, "title": "قصة اسلامية تهز القلوب", "description": "قصة اسلامية مؤثرة", "hashtags": "#قصص_اسلامية #ستيك_مان", "thumb_text": "عبرة عظيمة"}
+    except Exception:
+        data = {
+            "story": response.text, 
+            "title": "قصة اسلامية تهز القلوب", 
+            "description": "قصة اسلامية مؤثرة", 
+            "hashtags": "#قصص_اسلامية #ستيك_مان", 
+            "thumb_text": "عبرة عظيمة"
+        }
     
-    check = model.generate_content(f"هل هذه القصة فيها حديث ضعيف او موضوع؟ القصة: {data['story']} اجب بكلمة: صحيحة او خاطئة").text
-    if "خاطئة" in check:
+    # فاصل زمني 5 ثوانٍ لتفادي الـ Rate Limit
+    await asyncio.sleep(5)
+
+    check_prompt = f"هل هذه القصة فيها حديث ضعيف او موضوع؟ القصة: {data['story']} اجب بكلمة: صحيحة او خاطئة"
+    check_response = await safe_generate(check_prompt)
+
+    if "خاطئة" in check_response.text:
+        await asyncio.sleep(5)
         return await generate_all()
+
     return data
 
 async def text_to_speech(text):
@@ -100,8 +137,6 @@ def create_shorts(long_path):
     final.write_videofile("shorts.mp4", fps=24, codec='libx264', audio_codec='aac')
     return "shorts.mp4"
 
-from google.auth.transport.requests import Request
-
 def upload_youtube(video_path, thumb_path, title, description, tags, is_shorts=False):
     creds = Credentials.from_authorized_user_info({
         "client_id": os.environ["YT_CLIENT_ID"].strip(),
@@ -110,7 +145,7 @@ def upload_youtube(video_path, thumb_path, title, description, tags, is_shorts=F
         "token_uri": "https://oauth2.googleapis.com/token"
     }, scopes=["https://www.googleapis.com/auth/youtube.upload"])
     
-    # تجديد الـ Token تلقائياً في حالة انتهائه
+    # تجديد التوكن تلقائياً لو كان مستهلكاً أو منتهي الصلاحية
     if creds.expired or not creds.valid:
         creds.refresh(Request())
 
