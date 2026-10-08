@@ -9,8 +9,8 @@ import asyncio, edge_tts, random, textwrap, json, re
 import arabic_reshaper
 from bidi.algorithm import get_display
 
-# المكتبة الرسمية الجديدة من جوجل
 from google import genai
+from google.genai import errors
 
 # استيراد متوافق مع كافة إصدارات MoviePy
 try:
@@ -25,10 +25,10 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import numpy as np
 
-# تهيئة العميل الجديد
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+# جلب المفتاح مع تنظيفه من أي مسافات زائدة
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+client = genai.Client(api_key=GEMINI_KEY)
 
-# استخدام الموديل المعتمد حالياً
 MODEL_NAME = 'gemini-3.8-flash'
 VOICE = "ar-SA-HamedNeural"
 
@@ -36,8 +36,9 @@ def reshape_ar(text):
     return get_display(arabic_reshaper.reshape(text))
 
 async def safe_generate(prompt):
-    """دالة توليد آمنة مع إعادة المحاولة لتجنب الـ Rate Limit"""
+    """دالة توليد تعطي تفاصيل الخطأ الدقيقة ولا تعتبر كل خطأ Rate Limit"""
     delays = [15, 30, 60]
+    
     for attempt, delay in enumerate(delays, start=1):
         try:
             response = await asyncio.to_thread(
@@ -46,14 +47,19 @@ async def safe_generate(prompt):
                 contents=prompt
             )
             return response
-        except Exception as e:
-            err_str = str(e).lower()
-            if "429" in err_str or "resourceexhausted" in err_str or "quota" in err_str:
+        except errors.APIError as e:
+            print(f"❌ Gemini API Error Code: {e.code} - Message: {e.message}")
+            if e.code == 429:
                 print(f"⚠️ تجاوز حد الطلبات (Rate Limit). الانتظار {delay} ثانية... (المحاولة {attempt}/{len(delays)})")
                 await asyncio.sleep(delay)
             else:
-                raise e
-    raise Exception("❌ استنفاد المحاولات! يرجى إنشاء GEMINI_API_KEY جديد من Google AI Studio.")
+                # إذا كان الخطأ 400 أو 403 أو غيره، يتوقف فوراً مع إظهار السبب الحقيقي
+                raise Exception(f"خطأ في API (الكود {e.code}): {e.message}")
+        except Exception as e:
+            print(f"❌ Unexpected Error: {str(e)}")
+            raise e
+            
+    raise Exception("❌ استنفاد المحاولات بسبب الـ Rate Limit. انتظر بضع دقائق وأعد التشغيل.")
 
 async def generate_all():
     topic = random.choice([
