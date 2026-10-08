@@ -25,19 +25,20 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import numpy as np
 
-# جلب المفتاح مع تنظيفه من أي مسافات زائدة
+# جلب المفتاح وتجهيز العميل
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 client = genai.Client(api_key=GEMINI_KEY)
 
-MODEL_NAME = 'gemini-3.8-flash'
+# استخدام موديل مستقر خفيف ومرن
+MODEL_NAME = 'gemini-1.5-flash'
 VOICE = "ar-SA-HamedNeural"
 
 def reshape_ar(text):
     return get_display(arabic_reshaper.reshape(text))
 
 async def safe_generate(prompt):
-    """دالة توليد تعطي تفاصيل الخطأ الدقيقة ولا تعتبر كل خطأ Rate Limit"""
-    delays = [15, 30, 60]
+    """دالة توليد آمنة تعالج أخطاء الضغط المؤقت (503) وتجاوز المعدل (429)"""
+    delays = [10, 20, 30, 60]
     
     for attempt, delay in enumerate(delays, start=1):
         try:
@@ -48,18 +49,18 @@ async def safe_generate(prompt):
             )
             return response
         except errors.APIError as e:
-            print(f"❌ Gemini API Error Code: {e.code} - Message: {e.message}")
-            if e.code == 429:
-                print(f"⚠️ تجاوز حد الطلبات (Rate Limit). الانتظار {delay} ثانية... (المحاولة {attempt}/{len(delays)})")
+            print(f"⚠️ تنبيه Gemini API (الكود {e.code}): {e.message}")
+            # التعامل مع أخطاء الضغط المؤقت 503 وتجاوز المعدل 429
+            if e.code in [429, 503]:
+                print(f"⏳ خوادم الموديل تحت الضغط/تجاوز الحدود. جاري الانتظار {delay} ثانية... (المحاولة {attempt}/{len(delays)})")
                 await asyncio.sleep(delay)
             else:
-                # إذا كان الخطأ 400 أو 403 أو غيره، يتوقف فوراً مع إظهار السبب الحقيقي
-                raise Exception(f"خطأ في API (الكود {e.code}): {e.message}")
+                raise Exception(f"خطأ غير مؤقت في API (الكود {e.code}): {e.message}")
         except Exception as e:
-            print(f"❌ Unexpected Error: {str(e)}")
+            print(f"❌ خطأ غير متوقع: {str(e)}")
             raise e
             
-    raise Exception("❌ استنفاد المحاولات بسبب الـ Rate Limit. انتظر بضع دقائق وأعد التشغيل.")
+    raise Exception("❌ فشل الاتصال بعد محاولات متعددة بسبب الضغط على خوادم Gemini. جرب التشغيل بعد فترة قصيرة.")
 
 async def generate_all():
     topic = random.choice([
