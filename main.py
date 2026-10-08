@@ -5,9 +5,12 @@ import PIL.Image
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = getattr(PIL.Image, 'Resampling', PIL.Image).LANCZOS
 
-import google.generativeai as genai, asyncio, edge_tts, random, textwrap, json, re
+import asyncio, edge_tts, random, textwrap, json, re
 import arabic_reshaper
 from bidi.algorithm import get_display
+
+# المكتبة الرسمية الجديدة من جوجل
+from google import genai
 
 # استيراد متوافق مع كافة إصدارات MoviePy
 try:
@@ -22,23 +25,24 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import numpy as np
 
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-genai.configure(api_key=GEMINI_API_KEY)
-
-# استخدام الموديل المعتمد والنشط حالياً
-MODEL_NAME = 'gemini-3.8-flash'
-model = genai.GenerativeModel(MODEL_NAME)
+# تهيئة العميل الجديد
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+MODEL_NAME = 'gemini-2.5-flash'
 VOICE = "ar-SA-HamedNeural"
 
 def reshape_ar(text):
     return get_display(arabic_reshaper.reshape(text))
 
 async def safe_generate(prompt):
-    """دالة توليد مع انتظار متدرج ومرن للتعامل مع الـ Quota"""
-    delays = [15, 30, 60, 120]
+    """دالة توليد آمنة تعتمد على SDK الجديد ومعالجة الـ Rate Limit"""
+    delays = [10, 20, 40]
     for attempt, delay in enumerate(delays, start=1):
         try:
-            response = await asyncio.to_thread(model.generate_content, prompt)
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model=MODEL_NAME,
+                contents=prompt
+            )
             return response
         except Exception as e:
             err_str = str(e).lower()
@@ -47,7 +51,7 @@ async def safe_generate(prompt):
                 await asyncio.sleep(delay)
             else:
                 raise e
-    raise Exception("❌ استنفاد محاولات الانتظار! يرجى التأكد من حساب Google AI Studio الخاص بك.")
+    raise Exception("❌ استنفاد المحاولات! يرجى إنشاء GEMINI_API_KEY جديد من Google AI Studio.")
 
 async def generate_all():
     topic = random.choice([
@@ -56,7 +60,6 @@ async def generate_all():
         "قصة عن الامانة", "قصة عن الصبر"
     ])
     
-    # طلب واحد شاملاً لتوليد القصة دون الحاجة للاتصال مرتين بالـ API
     prompt = f"""
     اكتب قصة إسلامية موثوقة عن: {topic}
     شروط هامة:
