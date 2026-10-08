@@ -27,15 +27,17 @@ import numpy as np
 
 # تهيئة العميل الجديد
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-MODEL_NAME = 'gemini-2.5-flash'
+
+# استخدام الموديل المعتمد حالياً
+MODEL_NAME = 'gemini-3.8-flash'
 VOICE = "ar-SA-HamedNeural"
 
 def reshape_ar(text):
     return get_display(arabic_reshaper.reshape(text))
 
 async def safe_generate(prompt):
-    """دالة توليد آمنة تعتمد على SDK الجديد ومعالجة الـ Rate Limit"""
-    delays = [10, 20, 40]
+    """دالة توليد آمنة مع إعادة المحاولة لتجنب الـ Rate Limit"""
+    delays = [15, 30, 60]
     for attempt, delay in enumerate(delays, start=1):
         try:
             response = await asyncio.to_thread(
