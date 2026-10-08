@@ -100,23 +100,49 @@ def create_shorts(long_path):
     final.write_videofile("shorts.mp4", fps=24, codec='libx264', audio_codec='aac')
     return "shorts.mp4"
 
+from google.auth.transport.requests import Request
+
 def upload_youtube(video_path, thumb_path, title, description, tags, is_shorts=False):
     creds = Credentials.from_authorized_user_info({
-        "client_id": os.environ["YT_CLIENT_ID"],
-        "client_secret": os.environ["YT_CLIENT_SECRET"],
-        "refresh_token": os.environ["YT_REFRESH_TOKEN"],
+        "client_id": os.environ["YT_CLIENT_ID"].strip(),
+        "client_secret": os.environ["YT_CLIENT_SECRET"].strip(),
+        "refresh_token": os.environ["YT_REFRESH_TOKEN"].strip(),
         "token_uri": "https://oauth2.googleapis.com/token"
     }, scopes=["https://www.googleapis.com/auth/youtube.upload"])
+    
+    # تجديد الـ Token تلقائياً في حالة انتهائه
+    if creds.expired or not creds.valid:
+        creds.refresh(Request())
+
     youtube = build("youtube", "v3", credentials=creds)
-    if is_shorts: title = title + " #Shorts"
+    if is_shorts: 
+        title = title + " #Shorts"
+
     res = youtube.videos().insert(
         part="snippet,status",
-        body={"snippet": {"title": title[:95], "description": description, "tags": tags, "categoryId": "22"}, "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}},
+        body={
+            "snippet": {
+                "title": title[:95], 
+                "description": description, 
+                "tags": tags, 
+                "categoryId": "22"
+            }, 
+            "status": {
+                "privacyStatus": "public", 
+                "selfDeclaredMadeForKids": False
+            }
+        },
         media_body=MediaFileUpload(video_path, resumable=True)
     ).execute()
-    print(f"تم الرفع: https://youtu.be/{res['id']}")
+    
+    print(f"تم الرفع بنجاح: https://youtu.be/{res['id']}")
+    
     if not is_shorts:
-        youtube.thumbnails().set(videoId=res["id"], media_body=MediaFileUpload(thumb_path)).execute()
+        youtube.thumbnails().set(
+            videoId=res["id"], 
+            media_body=MediaFileUpload(thumb_path)
+        ).execute()
+        
     return res["id"]
 
 async def main():
