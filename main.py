@@ -25,8 +25,8 @@ import numpy as np
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 genai.configure(api_key=GEMINI_API_KEY)
 
-# استخدام موديل مستقر خفيف يمتلك حدود يومية أعلى (Quota)
-MODEL_NAME = 'gemini-2.0-flash'
+# استخدام الموديل المعتمد والنشط حالياً
+MODEL_NAME = 'gemini-3.8-flash'
 model = genai.GenerativeModel(MODEL_NAME)
 VOICE = "ar-SA-HamedNeural"
 
@@ -34,8 +34,8 @@ def reshape_ar(text):
     return get_display(arabic_reshaper.reshape(text))
 
 async def safe_generate(prompt):
-    """دالة توليد مع انتظار متدرج للتعامل مع الـ Quota"""
-    delays = [20, 40, 80, 120]
+    """دالة توليد مع انتظار متدرج ومرن للتعامل مع الـ Quota"""
+    delays = [15, 30, 60, 120]
     for attempt, delay in enumerate(delays, start=1):
         try:
             response = await asyncio.to_thread(model.generate_content, prompt)
@@ -43,11 +43,11 @@ async def safe_generate(prompt):
         except Exception as e:
             err_str = str(e).lower()
             if "429" in err_str or "resourceexhausted" in err_str or "quota" in err_str:
-                print(f"⚠️ تجاوز حد الطلبات (Quota/Rate Limit). جاري الانتظار {delay} ثانية... (المحاولة {attempt}/{len(delays)})")
+                print(f"⚠️ تجاوز حد الطلبات (Rate Limit). الانتظار {delay} ثانية... (المحاولة {attempt}/{len(delays)})")
                 await asyncio.sleep(delay)
             else:
                 raise e
-    raise Exception("❌ استنفاد محاولات الانتظار! يرجى تجديد GEMINI_API_KEY من Google AI Studio.")
+    raise Exception("❌ استنفاد محاولات الانتظار! يرجى التأكد من حساب Google AI Studio الخاص بك.")
 
 async def generate_all():
     topic = random.choice([
@@ -56,6 +56,7 @@ async def generate_all():
         "قصة عن الامانة", "قصة عن الصبر"
     ])
     
+    # طلب واحد شاملاً لتوليد القصة دون الحاجة للاتصال مرتين بالـ API
     prompt = f"""
     اكتب قصة إسلامية موثوقة عن: {topic}
     شروط هامة:
