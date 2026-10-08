@@ -278,7 +278,7 @@ def create_long_video(audio_path, story_text):
             duration=duration,
         ).with_audio(audio)
 
-        try:
+            try:
         video.write_videofile(
             "long_video.mp4",
             fps=24,
